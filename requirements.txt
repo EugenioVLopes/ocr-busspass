@@ -1,0 +1,7 @@
+Flask==2.0.1          # Micro framework web para Python
+Pillow==8.3.1         # Biblioteca de processamento de imagens
+pytesseract==0.3.8    # Wrapper para o Tesseract OCR
+python-dotenv==0.19.0 # Carrega variáveis de ambiente de um arquivo .env
+pytest==6.2.4         # Framework de testes para Python
+gunicorn==20.1.0      # Servidor WSGI para aplicações web Python
+pymupdf==1.18.19      # Biblioteca para manipulação de arquivos PDF
