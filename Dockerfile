@@ -1,27 +1,29 @@
-# Usa uma imagem base oficial do Python
-FROM python:3.9-slim-buster
+FROM python:3.10-slim
 
-# Define o diretório de trabalho no container
+# Definir o diretório de trabalho
 WORKDIR /app
 
-# Instala dependências do poppler
-RUN apt-get update && apt-get install -y libstdc++6
-
-# Copia a pasta do Poppler para o container
-COPY poppler-23.11.0 /app/poppler-23.11.0 
-
-# Copia o arquivo de requisitos e instala as dependências
+# Copiar apenas o requirements.txt para instalar dependências
 COPY requirements.txt .
+
+# Atualizar o sistema e instalar pacotes necessários
+RUN apt-get update && apt-get install -y \
+    tesseract-ocr \
+    poppler-utils \
+    libgl1 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Instalar dependências do Python
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia o restante do código da aplicação para o container
+# Copiar o restante dos arquivos do projeto para o contêiner
 COPY . .
 
-# Instala o Tesseract OCR
-RUN apt-get update && apt-get install -y tesseract-ocr tesseract-ocr-por
+# Variável de ambiente para o Tesseract OCR
+ENV TESSERACT_CMD=/usr/bin/tesseract
 
-# Expõe a porta que a aplicação vai usar
-EXPOSE 80
+# Expor a porta 5000 para acesso ao Flask
+EXPOSE 5000
 
-# Comando para iniciar a aplicação com Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:80", "app:app"]
+# Comando para iniciar a aplicação
+CMD ["python", "app.py"]
