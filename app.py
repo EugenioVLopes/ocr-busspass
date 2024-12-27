@@ -2,8 +2,10 @@ from flask import Flask, jsonify
 from api.routes import api_blueprint
 from werkzeug.exceptions import HTTPException
 import logging
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)  
 
 app.register_blueprint(api_blueprint, url_prefix='/api')
 
@@ -27,7 +29,7 @@ def error_handler(e):
         "descricao": e.description,
     })
 
-@app.errorhandler
+@app.errorhandler(Exception)
 def handler_unexpected_error(e):
     """Trata erros inesperados."""
     return jsonify({
