@@ -1,0 +1,11 @@
+image: docker:23.0.0
+
+build:
+  services:
+    - docker:23.0.0-dind
+  script:
+    - docker build --no-cache -t $CI_REGISTRY_IMAGE .
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker push $CI_REGISTRY_IMAGE
+  only:
+    - main
