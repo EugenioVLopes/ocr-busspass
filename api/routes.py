@@ -4,66 +4,72 @@ import os
 from flask import Blueprint, current_app, jsonify, request
 from werkzeug.utils import secure_filename
 
-from ocr.core import (convert_text_to_json, extract_text_from_image,
-                      extract_text_from_pdf_by_image)
+from ocr.core import OCRManager
 from ocr.utils import allowed_file
 
 api_blueprint = Blueprint('api', __name__)
 
-# POPPLER_PATH = r'C:\Program Files\poppler-24.08.0'
-
 logger = logging.getLogger(__name__)
+
+ocr_manager = OCRManager()
 
 @api_blueprint.route('/ocr', methods=['POST'])
 def ocr_route():
     """Rota para processar imagens e extrair texto."""
-    logger.info("--------------------------------------------")
-    logger.info("Requisição recebida em /ocr")
+    try:
+        # Validar arquivo
+        if 'file' not in request.files:
+            logger.warning("Requisição sem arquivo")
+            return jsonify({"erro": "Nenhum arquivo enviado"}), 400
 
-    if 'file' not in request.files:
-        logger.warning("Nenhum arquivo enviado na requisição.")
-        return jsonify({"mensagem": "Nenhum arquivo enviado"}), 400
+        file = request.files['file']
+        if not file or file.filename == '':
+            logger.warning("Arquivo inválido ou vazio")
+            return jsonify({"erro": "Arquivo inválido"}), 400
 
-    file = request.files['file']
+        if not allowed_file(file.filename):
+            logger.warning("Tipo de arquivo não permitido: %s", file.filename)
+            return jsonify({"erro": "Tipo de arquivo não suportado"}), 400
 
-    if file.filename == '':
-        return jsonify({"mensagem": "Nenhum arquivo selecionado"}), 400
-
-    if file and allowed_file(file.filename):
+        # Parâmetros opcionais com validação
+        try:
+            language = request.form.get('language', 'por')
+            dpi = int(request.form.get('dpi', 300))
+            if dpi < 72 or dpi > 600:
+                logger.warning("DPI inválido: %d", dpi)
+                return jsonify({"erro": "DPI deve estar entre 72 e 600"}), 400
+        except ValueError:
+            logger.warning("Valor de DPI inválido na requisição")
+            return jsonify({"erro": "Valor de DPI inválido"}), 400
+        
+        # Processar arquivo
         filename = secure_filename(file.filename)
         filepath = os.path.join(current_app.root_path, 'uploads', filename)
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        file.save(filepath)
-        logger.info(f"Arquivo salvo: {filepath}")
+        
+        try:
+            file.save(filepath)
+            logger.info("Processando arquivo: %s (lang=%s, dpi=%d)", filename, language, dpi)
+            
+            text = ocr_manager.process_document(
+                filepath, 
+                language=language,
+                dpi=dpi
+            )
+            
+            if not text:
+                logger.warning("Nenhum texto extraído do arquivo: %s", filename)
+                return jsonify({"erro": "Não foi possível extrair texto"}), 422
+                
+            cleaned_text = text.replace("\n", " ").replace("\r", " ").strip()
+            logger.info("Arquivo processado com sucesso: %s", filename)
+            return jsonify({"text": cleaned_text})
+            
+        finally:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                logger.debug("Arquivo temporário removido: %s", filepath)
 
-        if filename.lower().endswith('.pdf'):
-            text = extract_text_from_pdf_by_image(filepath)  # Extrai o texto convertendo para imagem
-            # Remove o arquivo temporário após a extração do texto
-            os.remove(filepath)
-            logger.info(f"Arquivo temporário removido: {filepath}")
-
-            if text:
-                logger.info("Texto extraído com sucesso.")
-                json_data = convert_text_to_json(text)
-                return jsonify(json_data)
-            else:
-                logger.error("Falha ao extrair texto do arquivo.")
-                return jsonify({"mensagem": "Erro ao extrair texto do arquivo"}), 500
-        else:
-            text = extract_text_from_image(filepath)
-
-        # Remove o arquivo temporário após a extração do texto
-        os.remove(filepath)
-        logger.info(f"Arquivo temporário removido: {filepath}")
-
-        if text:
-            logger.info("Texto extraído com sucesso.")
-            # Converte o texto para JSON antes de retornar
-            json_data = convert_text_to_json(text)
-            return jsonify(json_data)
-        else:
-            logger.error("Falha ao extrair texto do arquivo.")
-            return jsonify({"mensagem": "Erro ao extrair texto do arquivo"}), 500
-    else:
-        logger.warning(f"Tipo de arquivo não permitido: {file.filename}")
-        return jsonify({"mensagem": "Tipo de arquivo não suportado"}), 400
+    except Exception as e:
+        logger.error("Erro no processamento: %s", str(e), exc_info=True)
+        return jsonify({"erro": "Erro interno do servidor"}), 500

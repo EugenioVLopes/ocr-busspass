@@ -1,13 +1,17 @@
-version: "3.8"
+version: "3.9"
 
 services:
   ocr-service:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: registry.gitlab.com/busspass/ocr-ia-busspass:latest
     ports:
-      - "5000:5000" # Mapeia a porta 5000 do host para a porta 5000 do container
+      - "8002:8002"
+    restart: always
+    depends_on:
+      - nginx
+
+  nginx:
+    image: nginx:latest
+    ports:
+      - "80:80"
     volumes:
-      - .:/app # Mapeia o diretório atual do host para /app no container (útil para desenvolvimento)
-    environment:
-      - TESSERACT_CMD=/usr/bin/tesseract # Define o caminho do Tesseract OCR
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf

@@ -11,11 +11,11 @@ app.register_blueprint(api_blueprint, url_prefix='/api')
 
 # Configuração do logging
 logging.basicConfig(
-    level=logging.INFO,  # Nível mínimo de log (INFO, DEBUG, WARNING, ERROR, CRITICAL)
+    level=logging.INFO,  # Ajuste para DEBUG se precisar de mais detalhes
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("app.log"),  # Salva os logs em um arquivo chamado app.log
-        logging.StreamHandler()  # Exibe os logs no console também
+        logging.FileHandler("app.log"),
+        logging.StreamHandler()
     ]
 )
 
@@ -39,4 +39,4 @@ def handler_unexpected_error(e):
         }), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=8002, debug=True)
