@@ -1,17 +1,22 @@
-version: "3.9"
+version: "3.8"
 
 services:
   ocr-service:
-    image: registry.gitlab.com/busspass/ocr-ia-busspass:latest
+    build: .
+    container_name: ocr-service
+    restart: unless-stopped
+    volumes:
+      - ./uploads:/app/uploads
     ports:
       - "8002:8002"
-    restart: always
-    depends_on:
-      - nginx
 
   nginx:
-    image: nginx:latest
+    image: nginx:alpine
+    container_name: ocr-nginx
+    restart: unless-stopped
     ports:
       - "80:80"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - ocr-service
