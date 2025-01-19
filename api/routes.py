@@ -73,3 +73,50 @@ def ocr_route():
     except Exception as e:
         logger.error("Erro no processamento: %s", str(e), exc_info=True)
         return jsonify({"erro": "Erro interno do servidor"}), 500
+
+@api_blueprint.route('/ocr/position', methods=['POST'])
+def ocr_position_route():
+    """Rota para processar imagens e extrair texto com posicionamento."""
+    try:
+        if 'file' not in request.files:
+            logger.warning("Requisição sem arquivo")
+            return jsonify({"erro": "Nenhum arquivo enviado"}), 400
+
+        file = request.files['file']
+        if not file or file.filename == '':
+            logger.warning("Arquivo inválido ou vazio")
+            return jsonify({"erro": "Arquivo inválido"}), 400
+
+        if not allowed_file(file.filename):
+            logger.warning("Tipo de arquivo não permitido: %s", file.filename)
+            return jsonify({"erro": "Tipo de arquivo não suportado"}), 400
+
+        language = request.form.get('language', 'por')
+        
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(current_app.root_path, 'uploads', filename)
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        
+        try:
+            file.save(filepath)
+            logger.info("Processando arquivo com posição: %s", filename)
+            
+            result = ocr_manager.process_document_with_position(
+                filepath, 
+                language=language
+            )
+            
+            if not result:
+                logger.warning("Nenhum texto extraído do arquivo: %s", filename)
+                return jsonify({"erro": "Não foi possível extrair texto"}), 422
+                
+            return jsonify({"result": result})
+            
+        finally:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                logger.debug("Arquivo temporário removido: %s", filepath)
+
+    except Exception as e:
+        logger.error("Erro no processamento: %s", str(e), exc_info=True)
+        return jsonify({"erro": "Erro interno do servidor"}), 500

@@ -4,7 +4,7 @@ import logging
 import os
 
 import cv2
-import fitz  # Importe a biblioteca PyMuPDF
+import fitz
 import numpy as np
 import pytesseract
 from PIL import Image
@@ -234,3 +234,180 @@ class OCRManager:
     def _process_image(self, image_path, language, **kwargs):
         """Processa arquivo de imagem"""
         return extract_text_from_image(image_path, lang=language, **kwargs)
+
+    def process_document_with_position(self, file_path, language='por', **kwargs):
+        """
+        Processa documento e retorna campos identificados
+        """
+        try:
+            if language not in self.supported_languages:
+                raise ValueError(f"Idioma não suportado: {language}")
+                
+            file_ext = os.path.splitext(file_path)[1].lower()
+            logger.info("Processando documento: %s", file_path)
+            
+            if file_ext == '.pdf':
+                pages = self._process_pdf_with_position(file_path, language=language, **kwargs)
+                if pages:
+                    # Combinar campos de todas as páginas
+                    all_fields = {}
+                    for page in pages:
+                        all_fields.update(page.get('fields', {}))
+                    return all_fields
+            elif file_ext in ['.png', '.jpg', '.jpeg']:
+                return extract_text_with_position(file_path, lang=language, **kwargs)
+            else:
+                raise ValueError(f"Formato de arquivo não suportado: {file_ext}")
+                
+        except Exception as e:
+            logger.error("Erro ao processar documento: %s", str(e))
+            raise
+    
+    def _process_pdf_with_position(self, pdf_path, language, **kwargs):
+        """Processa PDF retornando texto com posicionamento de cada página"""
+        try:
+            doc = fitz.open(pdf_path)
+            results = []
+            
+            for page_num in range(doc.page_count):
+                page = doc.load_page(page_num)
+                pix = page.get_pixmap()
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                
+                # Salva temporariamente para processamento
+                temp_path = f"temp_page_{page_num}.png"
+                img.save(temp_path)
+                
+                try:
+                    page_result = extract_text_with_position(temp_path, lang=language)
+                    if page_result:
+                        results.append({
+                            'page': page_num + 1,
+                            'elements': page_result
+                        })
+                finally:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+            
+            return results
+            
+        except Exception as e:
+            logger.error("Erro ao processar PDF com posição: %s", str(e))
+            return None
+
+def extract_text_with_position(image_path, lang='por', **kwargs):
+    """
+    Extrai texto com informações de posicionamento e retorna campos identificados.
+    """
+    try:
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"Arquivo não encontrado: {image_path}")
+
+        # Extrair dados usando Tesseract com formato DICT
+        data = pytesseract.image_to_data(
+            Image.open(image_path), 
+            lang=lang, 
+            output_type=pytesseract.Output.DICT
+        )
+        
+        # Organizar resultado
+        elements = []
+        n_boxes = len(data['text'])
+        
+        for i in range(n_boxes):
+            if int(data['conf'][i]) == -1 or not data['text'][i].strip():
+                continue
+                
+            left = int(data['left'][i])
+            top = int(data['top'][i])
+            width = int(data['width'][i])
+            height = int(data['height'][i])
+            
+            elements.append({
+                'text': data['text'][i],
+                'confidence': float(data['conf'][i]),
+                'position': {
+                    'x': left + (width // 2),
+                    'y': top + (height // 2),
+                    'width': width,
+                    'height': height,
+                    'left': left,
+                    'top': top
+                }
+            })
+        
+        # Identificar e retornar apenas os campos encontrados
+        fields = identify_fields(elements)
+        return {k: v['value'] for k, v in fields.items()}
+
+    except Exception as e:
+        logger.error("Erro ao extrair texto com posição: %s", str(e), exc_info=True)
+        return None
+
+def identify_fields(elements):
+    """
+    Identifica campos baseados no texto e posição dos elementos.
+    """
+    fields = {}
+    field_patterns = {
+        'nome': ['nome', 'name'],
+        'cpf': ['cpf', 'cadastro de pessoa'],
+        'rg': ['rg', 'registro geral', 'identidade'],
+        'data_nascimento': ['nascimento', 'data de nascimento', 'birth', 'nasc'],
+        'filiacao': ['filiacao', 'filho', 'pai', 'mae', 'father', 'mother'],
+        'endereco': ['endereco', 'address', 'residencia'],
+        'validade': ['validade', 'valid', 'expira'],
+        'numero_cartao': ['cartão', 'card number', 'número do cartão'],
+        'validade_cartao': ['valid thru', 'validade'],
+        'titular': ['titular', 'holder']
+    }
+
+    # Ordenar elementos por posição vertical (y)
+    sorted_elements = sorted(elements, key=lambda x: x['position']['y'])
+    
+    for i, element in enumerate(sorted_elements):
+        text = element['text'].lower().strip()
+        
+        # Procurar por labels de campos
+        for field_name, patterns in field_patterns.items():
+            if any(pattern in text for pattern in patterns):
+                # Procurar valor do campo nas proximidades
+                value = find_field_value(sorted_elements, i, element['position'])
+                if value:
+                    fields[field_name] = {
+                        'label': element['text'],
+                        'value': value['text'],
+                        'confidence': value['confidence'],
+                        'position': value['position']
+                    }
+                break
+    
+    return fields
+
+def find_field_value(elements, current_index, label_position, max_distance=100):
+    """
+    Encontra o valor de um campo baseado na posição do label.
+    """
+    label_x = label_position['x']
+    label_y = label_position['y']
+    
+    # Procurar primeiro à direita (mesmo y, x maior)
+    for element in elements[current_index:]:
+        pos = element['position']
+        
+        # Verificar se está na mesma linha (aproximadamente)
+        if abs(pos['y'] - label_y) < 20:
+            if pos['x'] > label_x:
+                return element
+    
+    # Se não encontrou à direita, procurar abaixo
+    for element in elements[current_index:]:
+        pos = element['position']
+        
+        # Verificar se está abaixo e próximo
+        if (pos['y'] > label_y and 
+            pos['y'] - label_y < max_distance and 
+            abs(pos['x'] - label_x) < max_distance):
+            return element
+    
+    return None

@@ -28,9 +28,11 @@ env/
 # Project specific
 uploads/*
 !uploads/.gitkeep
+logs/
 logs/*
 !logs/.gitkeep
 data/
+uploads/
 
 # Docker
 .docker/
